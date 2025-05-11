@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Excel 比較工具</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .upload-container {
+        max-width: 600px;
+        margin: 0 auto;
+    }
+    #status {
+        display: none;
+    }
+    @media (max-width: 576px) {
+        .upload-container {
+            padding: 0 15px;
+        }
+    }
+  </style>
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-light bg-light">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="/index.html">Excel 比較工具</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav">
+        <li class="nav-item">
+          <a class="nav-link active" href="/index.html">首頁</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/html/compare.html">比較</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/html/view.html">查看檔案</a>
+        </li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+<div class="container my-4 upload-container">
+  <h1 class="mb-4">上傳 Excel 文件</h1>
+  <form id="uploadForm">
+    <div class="mb-3">
+      <label for="files" class="form-label">選擇 Excel 檔案（可多選）</label>
+      <input type="file" class="form-control" id="files" name="files" accept=".xlsx" multiple>
+    </div>
+    <button type="submit" class="btn btn-primary">上傳</button>
+  </form>
+  <div id="status" class="alert mt-3" role="alert"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  const uploadForm = document.getElementById('uploadForm');
+  const statusDiv = document.getElementById('status');
+
+  uploadForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const filesInput = document.getElementById('files');
+      const files = filesInput.files;
+
+      if (files.length === 0) {
+          statusDiv.innerText = '請選擇至少一個檔案';
+          statusDiv.className = 'alert alert-warning';
+          statusDiv.style.display = 'block';
+          return;
+      }
+
+      const formData = new FormData();
+      for (const file of files) {
+          if (!file.name.toLowerCase().endsWith('.xlsx')) {
+              statusDiv.innerText = `無效檔案格式：${file.name}`;
+              statusDiv.className = 'alert alert-danger';
+              statusDiv.style.display = 'block';
+              return;
+          }
+          formData.append('files', file);
+      }
+
+      statusDiv.innerText = '正在上傳...';
+      statusDiv.className = 'alert alert-info';
+      statusDiv.style.display = 'block';
+
+      try {
+          const response = await fetch('/api/upload', {
+              method: 'POST',
+              body: formData
+          });
+
+          const result = await response.json();
+          if (!response.ok) {
+              throw new Error(result.message || `上傳失敗：${response.status} ${response.statusText}`);
+          }
+
+          if (result.uploaded.length === 0) {
+              statusDiv.innerText = result.message || '上傳失敗：沒有檔案被處理，請檢查檔案格式或聯繫管理員';
+              statusDiv.className = 'alert alert-danger';
+              statusDiv.style.display = 'block';
+              return;
+          }
+
+          statusDiv.innerText = `成功上傳 ${result.uploaded.length} 個檔案`;
+          statusDiv.className = 'alert alert-success';
+          statusDiv.style.display = 'block';
+          // 移除自動跳轉
+      } catch (error) {
+          statusDiv.innerText = `❌ 上傳失敗：${error.message}`;
+          statusDiv.className = 'alert alert-danger';
+          statusDiv.style.display = 'block';
+          console.error('上傳錯誤：', error);
+      }
+  });
+</script>
+</body>
+</html>
