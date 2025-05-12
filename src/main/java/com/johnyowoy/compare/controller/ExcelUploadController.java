@@ -26,7 +26,6 @@ import java.util.*;
 public class ExcelUploadController {
 
     private static final Logger logger = LoggerFactory.getLogger(ExcelUploadController.class);
-    private final Map<String, Map<String, Object>> uploadedFiles = new HashMap<>();
 
     @Value("${app.excel-data-dir:target/ExcelData}")
     private String excelDataDir;
@@ -34,13 +33,15 @@ public class ExcelUploadController {
     @Autowired
     private ExcelReader excelReader;
 
+    @Autowired
+    private Map<String, Map<String, Object>> uploadedFiles;
+
     @PostMapping("/upload")
     public Map<String, Object> uploadFiles(@RequestParam("files") MultipartFile[] files) {
         logger.info("收到上傳請求，文件數量：{}", files != null ? files.length : 0);
         Map<String, Object> response = new HashMap<>();
         List<Map<String, String>> uploaded = new ArrayList<>();
 
-        // 解析並驗證儲存路徑
         Path excelDataPath = Paths.get(excelDataDir).toAbsolutePath().normalize();
         try {
             if (!Files.exists(excelDataPath)) {
@@ -78,10 +79,7 @@ public class ExcelUploadController {
             }
 
             try {
-                // 先解析檔案
                 Map<String, Object> fileData = excelReader.readExcel(file);
-
-                // 儲存檔案
                 Path filePath = excelDataPath.resolve(filename);
                 file.transferTo(filePath.toFile());
                 logger.info("檔案儲存至：{}", filePath);
@@ -174,20 +172,12 @@ public class ExcelUploadController {
         }
 
         String filename = (String) fileData.get("filename");
-        Path filePath = Paths.get(excelDataDir).toAbsolutePath().normalize().resolve(filename);
         try {
-            if (!Files.exists(filePath)) {
-                logger.warn("檔案不存在於磁碟：{}", filePath);
-                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "檔案不存在於伺服器");
-            }
-
-            // 重用 ExcelReader 解析檔案
             Map<String, Object> content = new HashMap<>();
             List<String> headers = new ArrayList<>();
             @SuppressWarnings("unchecked")
             List<Map<String, String>> data = (List<Map<String, String>>) fileData.get("data");
 
-            // 從第一行數據提取表頭
             if (!data.isEmpty()) {
                 headers.addAll(data.get(0).keySet());
             }

@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>查看已上傳檔案</title>
+    <title>查看 Excel 檔案</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         .view-container {
-            max-width: 800px;
+            max-width: 1000px;
             margin: 0 auto;
         }
         #status {
@@ -15,6 +15,10 @@
         }
         .modal-body {
             max-height: 500px;
+            overflow-y: auto;
+        }
+        .table-container {
+            max-height: 600px;
             overflow-y: auto;
         }
         @media (max-width: 576px) {
@@ -25,60 +29,41 @@
     </style>
 </head>
 <body>
-<nav class="navbar navbar-expand-lg navbar-light bg-light">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="/index.html">Excel 比較工具</a>
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="navbarNav">
-            <ul class="navbar-nav">
-                <li class="nav-item">
-                    <a class="nav-link" href="/index.html">首頁</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="/html/compare.html">比較</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link active" href="/html/view.html">查看檔案</a>
-                </li>
-            </ul>
-        </div>
-    </div>
-</nav>
+<div id="navbar"></div>
 
 <div class="container my-4 view-container">
-    <h1 class="mb-4">已上傳的檔案</h1>
+    <h1 class="mb-4">查看 Excel 檔案</h1>
     <div id="status" class="alert mt-3" role="alert"></div>
-    <table class="table table-striped">
-        <thead>
-        <tr>
-            <th scope="col">檔案名稱</th>
-            <th scope="col">操作</th>
-        </tr>
-        </thead>
-        <tbody id="fileList">
-        <!-- 檔案清單將動態填充 -->
-        </tbody>
-    </table>
-</div>
+    <div class="mb-3">
+        <label for="fileSelect" class="form-label">選擇檔案</label>
+        <select class="form-select" id="fileSelect">
+            <option value="">請選擇檔案</option>
+        </select>
+    </div>
+    <div class="table-container">
+        <table class="table table-striped">
+            <thead id="fileHeader"></thead>
+            <tbody id="fileBody"></tbody>
+        </table>
+    </div>
 
-<!-- 模態框：顯示 Excel 內容 -->
-<div class="modal fade" id="excelModal" tabindex="-1" aria-labelledby="excelModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="excelModalLabel">Excel 內容</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <table class="table table-bordered">
-                    <thead id="excelHeader"></thead>
-                    <tbody id="excelBody"></tbody>
-                </table>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">關閉</button>
+    <!-- 檔案內容模態框 -->
+    <div class="modal fade" id="fileContentModal" tabindex="-1" aria-labelledby="fileContentModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="fileContentModalLabel">檔案內容</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <table class="table table-striped">
+                        <thead id="modalHeader"></thead>
+                        <tbody id="modalBody"></tbody>
+                    </table>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">關閉</button>
+                </div>
             </div>
         </div>
     </div>
@@ -86,12 +71,25 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+    // 載入導航列
+    async function loadNavbar() {
+        try {
+            const response = await fetch('/html/navbar.html');
+            const navbarHtml = await response.text();
+            document.getElementById('navbar').innerHTML = navbarHtml;
+            document.querySelector('a[href="/html/view.html"]').classList.add('active');
+        } catch (error) {
+            console.error('載入導航列失敗：', error);
+        }
+    }
+
+    const fileSelect = document.getElementById('fileSelect');
+    const fileHeader = document.getElementById('fileHeader');
+    const fileBody = document.getElementById('fileBody');
+    const modalHeader = document.getElementById('modalHeader');
+    const modalBody = document.getElementById('modalBody');
     const statusDiv = document.getElementById('status');
-    const fileList = document.getElementById('fileList');
-    const excelModal = new bootstrap.Modal(document.getElementById('excelModal'));
-    const excelHeader = document.getElementById('excelHeader');
-    const excelBody = document.getElementById('excelBody');
-    const excelModalLabel = document.getElementById('excelModalLabel');
+    const fileContentModal = new bootstrap.Modal(document.getElementById('fileContentModal'));
 
     async function loadFiles() {
         try {
@@ -102,27 +100,40 @@
                 throw new Error(result.message || `無法獲取檔案清單：${response.status}`);
             }
 
+            fileSelect.innerHTML = '<option value="">請選擇檔案</option>';
             if (result.files.length === 0) {
-                statusDiv.innerText = '尚未上傳任何檔案';
+                statusDiv.innerText = '尚未上傳任何檔案，請先上傳檔案';
                 statusDiv.className = 'alert alert-info';
                 statusDiv.style.display = 'block';
-                fileList.innerHTML = '';
+                fileHeader.innerHTML = '';
+                fileBody.innerHTML = '';
                 return;
             }
 
             statusDiv.style.display = 'none';
-            fileList.innerHTML = '';
+            fileHeader.innerHTML = `
+                <tr>
+                    <th>檔案名稱</th>
+                    <th>操作</th>
+                </tr>
+            `;
+            fileBody.innerHTML = '';
             result.files.forEach(file => {
-                const row = document.createElement('tr');
-                row.innerHTML = `
+                const option = document.createElement('option');
+                option.value = file.fileId;
+                option.textContent = file.filename;
+                fileSelect.appendChild(option);
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
                     <td>${file.filename}</td>
                     <td>
-                        <a href="/api/download/${file.fileId}" class="btn btn-primary btn-sm me-1">下載</a>
-                        <button class="btn btn-info btn-sm me-1" onclick="viewExcelContent('${file.fileId}', '${file.filename}')">瀏覽 Excel 內容</button>
-                        <button class="btn btn-danger btn-sm" onclick="deleteFile('${file.fileId}')">移除檔案</button>
+                        <button class="btn btn-primary btn-sm me-2" onclick="viewFile('${file.fileId}')">查看</button>
+                        <a class="btn btn-success btn-sm me-2" href="/api/download/${file.fileId}">下載</a>
+                        <button class="btn btn-danger btn-sm" onclick="deleteFile('${file.fileId}', '${file.filename}')">刪除</button>
                     </td>
                 `;
-                fileList.appendChild(row);
+                fileBody.appendChild(tr);
             });
         } catch (error) {
             statusDiv.innerText = `❌ 無法載入檔案清單：${error.message}`;
@@ -132,29 +143,26 @@
         }
     }
 
-    async function viewExcelContent(fileId, filename) {
+    async function viewFile(fileId) {
         try {
             const response = await fetch(`/api/file/${fileId}/content`, { method: 'GET' });
             const result = await response.json();
 
             if (!response.ok) {
-                throw new Error(result.message || `無法獲取 Excel 內容：${response.status}`);
+                throw new Error(result.message || `無法獲取檔案內容：${response.status}`);
             }
 
-            excelModalLabel.innerText = `Excel 內容 - ${filename}`;
-            excelHeader.innerHTML = '';
-            excelBody.innerHTML = '';
+            modalHeader.innerHTML = '';
+            modalBody.innerHTML = '';
 
-            // 渲染表頭
             const headerRow = document.createElement('tr');
             result.headers.forEach(header => {
                 const th = document.createElement('th');
-                th.textContent = header || '';
+                th.textContent = header;
                 headerRow.appendChild(th);
             });
-            excelHeader.appendChild(headerRow);
+            modalHeader.appendChild(headerRow);
 
-            // 渲染數據
             result.data.forEach(row => {
                 const tr = document.createElement('tr');
                 result.headers.forEach(header => {
@@ -162,46 +170,55 @@
                     td.textContent = row[header] || '';
                     tr.appendChild(td);
                 });
-                excelBody.appendChild(tr);
+                modalBody.appendChild(tr);
             });
 
-            excelModal.show();
+            fileContentModal.show();
         } catch (error) {
-            statusDiv.innerText = `❌ 無法載入 Excel 內容：${error.message}`;
+            statusDiv.innerText = `❌ 無法載入檔案內容：${error.message}`;
             statusDiv.className = 'alert alert-danger';
             statusDiv.style.display = 'block';
-            console.error('載入 Excel 內容錯誤：', error);
+            console.error('載入內容錯誤：', error);
         }
     }
 
-    async function deleteFile(fileId) {
-        if (!confirm('確定要移除此檔案嗎？')) return;
+    async function deleteFile(fileId, filename) {
+        if (!confirm(`確定要刪除檔案 ${filename} 嗎？`)) return;
 
         try {
             const response = await fetch(`/api/file/${fileId}`, { method: 'DELETE' });
             const result = await response.json();
 
             if (!response.ok) {
-                throw new Error(result.message || `無法移除檔案：${response.status}`);
+                throw new Error(result.message || `刪除失敗：${response.status}`);
             }
 
-            statusDiv.innerText = '檔案已移除';
+            statusDiv.innerText = `成功刪除檔案：${filename}`;
             statusDiv.className = 'alert alert-success';
             statusDiv.style.display = 'block';
-            setTimeout(() => statusDiv.style.display = 'none', 3000);
-
-            // 刷新檔案清單
             await loadFiles();
         } catch (error) {
-            statusDiv.innerText = `❌ 無法移除檔案：${error.message}`;
+            statusDiv.innerText = `❌ 刪除失敗：${error.message}`;
             statusDiv.className = 'alert alert-danger';
             statusDiv.style.display = 'block';
-            console.error('移除檔案錯誤：', error);
+            console.error('刪除錯誤：', error);
         }
     }
 
-    // 頁面載入時獲取檔案清單
-    window.addEventListener('load', loadFiles);
+    fileSelect.addEventListener('change', async () => {
+        const fileId = fileSelect.value;
+        if (!fileId) {
+            fileHeader.innerHTML = '';
+            fileBody.innerHTML = '';
+            return;
+        }
+        await viewFile(fileId);
+    });
+
+    window.addEventListener('load', () => {
+        loadNavbar();
+        loadFiles();
+    });
 </script>
 </body>
 </html>

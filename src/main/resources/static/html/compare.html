@@ -1,10 +1,516 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>Title</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>比較 Excel 檔案</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .compare-container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        #status, #compareStatus {
+            display: none;
+        }
+        .table-container {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .missing {
+            background-color: #ffe6e6;
+        }
+        .different {
+            background-color: #fff3cd;
+        }
+        .secondary-file {
+            margin-bottom: 10px;
+        }
+        @media (max-width: 576px) {
+            .compare-container {
+                padding: 0 15px;
+            }
+        }
+    </style>
 </head>
 <body>
+<div id="navbar"></div>
 
+<div class="container my-4 compare-container">
+    <h1 class="mb-4">比較 Excel 檔案</h1>
+    <div id="status" class="alert mt-3" role="alert"></div>
+    <form id="compareForm">
+        <div class="mb-3">
+            <label class="form-label">選擇主要檔案</label>
+            <select class="form-select" id="firstFile" required>
+                <option value="">請選擇</option>
+            </select>
+        </div>
+        <div id="secondaryFiles" class="mb-3">
+            <label class="form-label">選擇次要檔案</label>
+            <div class="secondary-file">
+                <select class="form-select secondary-file-select" required>
+                    <option value="">請選擇</option>
+                </select>
+            </div>
+        </div>
+        <button type="button" class="btn btn-secondary mb-3" onclick="addSecondaryFile()">新增次要檔案</button>
+        <div class="mb-3">
+            <label for="keyField" class="form-label">關鍵欄位（Keyword）</label>
+            <select class="form-select" id="keyField" required>
+                <option value="">請選擇</option>
+            </select>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">選擇比較欄位</label>
+            <div id="fieldSelect"></div>
+        </div>
+        <button type="submit" class="btn btn-primary">開始比較</button>
+    </form>
+    <div id="compareStatus" class="alert mt-3" role="alert"></div>
+    <div class="mt-4 table-container">
+        <h3>比較結果</h3>
+        <div class="mb-3">
+            <label for="filterField" class="form-label">篩選欄位</label>
+            <select class="form-select" id="filterField">
+                <option value="">全部欄位</option>
+            </select>
+            <button class="btn btn-secondary mt-2" onclick="filterDifferences()">僅顯示差異</button>
+            <button class="btn btn-info mt-2" onclick="showDetails()">查看明細表</button>
+            <button class="btn btn-info mt-2" onclick="showStats()">查看統計表</button>
+        </div>
+        <table class="table table-striped">
+            <thead id="resultHeader"></thead>
+            <tbody id="resultBody"></tbody>
+        </table>
+    </div>
+    <div class="mt-4 table-container" id="detailsTable" style="display: none;">
+        <h3>明細表</h3>
+        <table class="table table-striped">
+            <thead id="detailsHeader"></thead>
+            <tbody id="detailsBody"></tbody>
+        </table>
+    </div>
+    <div class="mt-4 table-container" id="statsTable" style="display: none;">
+        <h3>統計表</h3>
+        <table class="table table-striped">
+            <thead id="statsHeader"></thead>
+            <tbody id="statsBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // 載入導航列
+    async function loadNavbar() {
+        try {
+            const response = await fetch('/html/navbar.html');
+            const navbarHtml = await response.text();
+            document.getElementById('navbar').innerHTML = navbarHtml;
+            document.querySelector('a[href="/html/compare.html"]').classList.add('active');
+        } catch (error) {
+            console.error('載入導航列失敗：', error);
+        }
+    }
+
+    const compareForm = document.getElementById('compareForm');
+    const statusDiv = document.getElementById('status');
+    const compareStatusDiv = document.getElementById('compareStatus');
+    const firstFile = document.getElementById('firstFile');
+    const secondaryFiles = document.getElementById('secondaryFiles');
+    const keyField = document.getElementById('keyField');
+    const fieldSelect = document.getElementById('fieldSelect');
+    const resultHeader = document.getElementById('resultHeader');
+    const resultBody = document.getElementById('resultBody');
+    const detailsHeader = document.getElementById('detailsHeader');
+    const detailsBody = document.getElementById('detailsBody');
+    const statsHeader = document.getElementById('statsHeader');
+    const statsBody = document.getElementById('statsBody');
+    const filterField = document.getElementById('filterField');
+    let allResults = [];
+    let allDetails = [];
+    let allStats = [];
+
+    async function loadFiles() {
+        try {
+            const response = await fetch('/api/files', { method: 'GET' });
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.message || `無法獲取檔案清單：${response.status}`);
+            }
+
+            if (result.files.length === 0) {
+                statusDiv.innerText = '尚未上傳任何檔案，請先上傳檔案';
+                statusDiv.className = 'alert alert-info';
+                statusDiv.style.display = 'block';
+                firstFile.innerHTML = '<option value="">請選擇</option>';
+                document.querySelectorAll('.secondary-file-select').forEach(select => {
+                    select.innerHTML = '<option value="">請選擇</option>';
+                });
+                return;
+            }
+
+            statusDiv.style.display = 'none';
+            firstFile.innerHTML = '<option value="">請選擇</option>';
+            document.querySelectorAll('.secondary-file-select').forEach(select => {
+                select.innerHTML = '<option value="">請選擇</option>';
+            });
+
+            result.files.forEach(file => {
+                const option1 = document.createElement('option');
+                option1.value = file.fileId;
+                option1.textContent = file.filename;
+                firstFile.appendChild(option1);
+
+                document.querySelectorAll('.secondary-file-select').forEach(select => {
+                    const option2 = document.createElement('option');
+                    option2.value = file.fileId;
+                    option2.textContent = file.filename;
+                    select.appendChild(option2);
+                });
+            });
+
+            firstFile.addEventListener('change', updateFields);
+            secondaryFiles.addEventListener('change', updateFields);
+        } catch (error) {
+            statusDiv.innerText = `❌ 無法載入檔案清單：${error.message}`;
+            statusDiv.className = 'alert alert-danger';
+            statusDiv.style.display = 'block';
+            console.error('載入檔案錯誤：', error);
+        }
+    }
+
+    function addSecondaryFile() {
+        const div = document.createElement('div');
+        div.className = 'secondary-file';
+        div.innerHTML = `
+            <select class="form-select secondary-file-select" required>
+                <option value="">請選擇</option>
+            </select>
+            <button type="button" class="btn btn-danger btn-sm mt-2" onclick="this.parentElement.remove(); updateFields()">移除</button>
+        `;
+        secondaryFiles.appendChild(div);
+        // 重新填充選項
+        const selects = document.querySelectorAll('.secondary-file-select');
+        selects.forEach(select => {
+            select.innerHTML = '<option value="">請選擇</option>';
+            firstFile.querySelectorAll('option').forEach(opt => {
+                if (opt.value) {
+                    const option = document.createElement('option');
+                    option.value = opt.value;
+                    option.textContent = opt.textContent;
+                    select.appendChild(option);
+                }
+            });
+        });
+    }
+
+    async function updateFields() {
+        const mainFileId = firstFile.value;
+        const otherFileIds = Array.from(document.querySelectorAll('.secondary-file-select'))
+            .map(select => select.value)
+            .filter(id => id && id !== mainFileId);
+
+        keyField.innerHTML = '<option value="">請選擇</option>';
+        fieldSelect.innerHTML = '';
+
+        if (!mainFileId) return;
+
+        try {
+            // 獲取所有檔案的欄位
+            const allFileIds = [mainFileId, ...otherFileIds].filter(id => id);
+            const headersByFile = new Map();
+            for (const fileId of allFileIds) {
+                const response = await fetch(`/api/file/${fileId}/content`, { method: 'GET' });
+                const result = await response.json();
+                if (!response.ok) {
+                    throw new Error(result.message || `無法獲取欄位：${response.status}`);
+                }
+                headersByFile.set(fileId, result.headers);
+            }
+
+            // 計算共有欄位（用於 keyField）
+            const commonHeaders = headersByFile.get(mainFileId).filter(header =>
+                allFileIds.every(id => headersByFile.get(id).includes(header))
+            );
+
+            // 填充關鍵欄位
+            commonHeaders.forEach(header => {
+                const option = document.createElement('option');
+                option.value = header;
+                option.textContent = header;
+                keyField.appendChild(option);
+            });
+
+            // 合併所有欄位（去重）
+            const allHeaders = [...new Set(
+                allFileIds.flatMap(id => headersByFile.get(id))
+            )];
+
+            // 填充比較欄位
+            allHeaders.forEach(header => {
+                const div = document.createElement('div');
+                div.className = 'form-check';
+                div.innerHTML = `
+                    <input class="form-check-input field-checkbox" type="checkbox" value="${header}" id="field-${header}">
+                    <label class="form-check-label" for="field-${header}">${header}</label>
+                `;
+                fieldSelect.appendChild(div);
+            });
+        } catch (error) {
+            statusDiv.innerText = `❌ 無法載入欄位：${error.message}`;
+            statusDiv.className = 'alert alert-danger';
+            statusDiv.style.display = 'block';
+            console.error('載入欄位錯誤：', error);
+        }
+    }
+
+    compareForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const mainFileId = firstFile.value;
+        const otherFileIds = Array.from(document.querySelectorAll('.secondary-file-select'))
+            .map(select => select.value)
+            .filter(id => id && id !== mainFileId);
+        const key = keyField.value;
+        const selectedFields = Array.from(document.querySelectorAll('.field-checkbox:checked')).map(cb => cb.value);
+
+        if (!mainFileId || otherFileIds.length === 0) {
+            compareStatusDiv.innerText = '請選擇主要檔案和至少一個次要檔案';
+            compareStatusDiv.className = 'alert alert-warning';
+            compareStatusDiv.style.display = 'block';
+            return;
+        }
+        if (otherFileIds.includes(mainFileId)) {
+            compareStatusDiv.innerText = '次要檔案不能與主要檔案相同';
+            compareStatusDiv.className = 'alert alert-warning';
+            compareStatusDiv.style.display = 'block';
+            return;
+        }
+        if (!key) {
+            compareStatusDiv.innerText = '請選擇比較鍵';
+            compareStatusDiv.className = 'alert alert-warning';
+            compareStatusDiv.style.display = 'block';
+            return;
+        }
+        if (selectedFields.length === 0) {
+            compareStatusDiv.innerText = '請選擇至少一個比較欄位';
+            compareStatusDiv.className = 'alert alert-warning';
+            compareStatusDiv.style.display = 'block';
+            return;
+        }
+
+        compareStatusDiv.innerText = '正在比較...';
+        compareStatusDiv.className = 'alert alert-info';
+        compareStatusDiv.style.display = 'block';
+
+        try {
+            const response = await fetch('/api/compare', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mainFileId: mainFileId,
+                    otherFileIds: otherFileIds,
+                    keyField: key,
+                    selectedFields: selectedFields
+                })
+            });
+            const result = await response.json();
+
+            if (!response.ok) {
+                const errorText = result.message || `比較失敗：${response.status}`;
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+
+            compareStatusDiv.style.display = 'none';
+            allResults = result;
+            renderResults(result);
+
+            filterField.innerHTML = '<option value="">全部欄位</option>';
+            result.headers.forEach(header => {
+                const option = document.createElement('option');
+                option.value = header;
+                option.textContent = header;
+                filterField.appendChild(option);
+            });
+
+            document.getElementById('detailsTable').style.display = 'none';
+            document.getElementById('statsTable').style.display = 'none';
+        } catch (error) {
+            compareStatusDiv.innerText = `❌ 比較失敗：${error.message}`;
+            compareStatusDiv.className = 'alert alert-danger';
+            compareStatusDiv.style.display = 'block';
+            console.error('比較錯誤：', error);
+        }
+    });
+
+    async function showDetails() {
+        try {
+            const mainFileId = firstFile.value;
+            const otherFileIds = Array.from(document.querySelectorAll('.secondary-file-select'))
+                .map(select => select.value)
+                .filter(id => id && id !== mainFileId);
+            const key = keyField.value;
+            const selectedFields = Array.from(document.querySelectorAll('.field-checkbox:checked')).map(cb => cb.value);
+
+            const response = await fetch('/api/compare/details', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mainFileId: mainFileId,
+                    otherFileIds: otherFileIds,
+                    keyField: key,
+                    selectedFields: selectedFields
+                })
+            });
+            const result = await response.json();
+
+            if (!response.ok) {
+                const errorText = result.message || `獲取明細表失敗：${response.status}`;
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+
+            allDetails = result;
+            renderDetails(result);
+            document.getElementById('detailsTable').style.display = 'block';
+            document.getElementById('statsTable').style.display = 'none';
+        } catch (error) {
+            compareStatusDiv.innerText = `❌ 獲取明細表失敗：${error.message}`;
+            compareStatusDiv.className = 'alert alert-danger';
+            compareStatusDiv.style.display = 'block';
+            console.error('明細表錯誤：', error);
+        }
+    }
+
+    async function showStats() {
+        try {
+            const mainFileId = firstFile.value;
+            const otherFileIds = Array.from(document.querySelectorAll('.secondary-file-select'))
+                .map(select => select.value)
+                .filter(id => id && id !== mainFileId);
+            const key = keyField.value;
+            const selectedFields = Array.from(document.querySelectorAll('.field-checkbox:checked')).map(cb => cb.value);
+
+            const response = await fetch('/api/compare/stats', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mainFileId: mainFileId,
+                    otherFileIds: otherFileIds,
+                    keyField: key,
+                    selectedFields: selectedFields
+                })
+            });
+            const result = await response.json();
+
+            if (!response.ok) {
+                const errorText = result.message || `獲取統計表失敗：${response.status}`;
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+
+            allStats = result;
+            renderStats(result);
+            document.getElementById('statsTable').style.display = 'block';
+            document.getElementById('detailsTable').style.display = 'none';
+        } catch (error) {
+            compareStatusDiv.innerText = `❌ 獲取統計表失敗：${error.message}`;
+            compareStatusDiv.className = 'alert alert-danger';
+            compareStatusDiv.style.display = 'block';
+            console.error('統計表錯誤：', error);
+        }
+    }
+
+    function renderResults(result, filter = '', onlyDifferences = false) {
+        resultHeader.innerHTML = '';
+        resultBody.innerHTML = '';
+
+        const headerRow = document.createElement('tr');
+        result.headers.forEach(header => {
+            if (!filter || header === filter || header.includes('status')) {
+                const th = document.createElement('th');
+                th.textContent = header;
+                headerRow.appendChild(th);
+            }
+        });
+        resultHeader.appendChild(headerRow);
+
+        result.data.forEach(row => {
+            if (!onlyDifferences || row.status !== 'match') {
+                const tr = document.createElement('tr');
+                if (row.status === 'missing') tr.className = 'missing';
+                if (row.status === 'different') tr.className = 'different';
+                result.headers.forEach(header => {
+                    if (!filter || header === filter || header.includes('status')) {
+                        const td = document.createElement('td');
+                        td.textContent = row[header] || '';
+                        tr.appendChild(td);
+                    }
+                });
+                resultBody.appendChild(tr);
+            }
+        });
+    }
+
+    function renderDetails(result) {
+        detailsHeader.innerHTML = '';
+        detailsBody.innerHTML = '';
+
+        const headerRow = document.createElement('tr');
+        result.headers.forEach(header => {
+            const th = document.createElement('th');
+            th.textContent = header;
+            headerRow.appendChild(th);
+        });
+        detailsHeader.appendChild(headerRow);
+
+        result.data.forEach(row => {
+            const tr = document.createElement('tr');
+            result.headers.forEach(header => {
+                const td = document.createElement('td');
+                td.textContent = row[header] || '';
+                tr.appendChild(td);
+            });
+            detailsBody.appendChild(tr);
+        });
+    }
+
+    function renderStats(result) {
+        statsHeader.innerHTML = '';
+        statsBody.innerHTML = '';
+
+        const headerRow = document.createElement('tr');
+        result.headers.forEach(header => {
+            const th = document.createElement('th');
+            th.textContent = header;
+            headerRow.appendChild(th);
+        });
+        statsHeader.appendChild(headerRow);
+
+        result.data.forEach(row => {
+            const tr = document.createElement('tr');
+            result.headers.forEach(header => {
+                const td = document.createElement('td');
+                td.textContent = row[header] || '';
+                tr.appendChild(td);
+            });
+            statsBody.appendChild(tr);
+        });
+    }
+
+    function filterDifferences() {
+        const filter = filterField.value;
+        renderResults(allResults, filter, true);
+    }
+
+    filterField.addEventListener('change', () => {
+        renderResults(allResults, filterField.value, false);
+    });
+
+    window.addEventListener('load', () => {
+        loadNavbar();
+        loadFiles();
+    });
+</script>
 </body>
 </html>

@@ -28,15 +28,16 @@ public class SecurityConfig {
                                 "/api/upload",
                                 "/api/files",
                                 "/api/files/**",
+                                "/api/compare", // 允許公開訪問
                                 "/login",
                                 "/error"
                         ).permitAll()
-                        .requestMatchers("/api/compare", "/api/download").authenticated()
-                        .anyRequest().permitAll() // 臨時放寬
+                        .requestMatchers("/api/download").authenticated()
+                        .anyRequest().permitAll()
                 )
-                // 臨時禁用 CSRF
+                // 禁用 CSRF
                 .csrf(csrf -> csrf.disable())
-                // 表單登入
+                // 表單登入（保留，但不強制使用）
                 .formLogin(form -> form
                         .loginPage("/login")
                         .defaultSuccessUrl("/html/compare.html", true)
